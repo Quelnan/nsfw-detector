@@ -1,8 +1,8 @@
 {
-    "geode": "3.4.0",
+    "geode": "4.2.0",
     "gd": {
-        "win": "2.206",
-        "android": "2.206"
+        "win": "2.2074",
+        "android": "2.2074"
     },
     "id": "quelnan.nsfw-detector",
     "name": "NSFW Level Detector",
