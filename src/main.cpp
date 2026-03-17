@@ -22,14 +22,25 @@ static std::string buildText(ScanResult const& r) {
     float mx = 0;
     for (auto& c : r.categories) mx = std::max(mx, c.percent);
 
-    t += fmt::format("\nMax: <co>{:.0f}%</c>", mx);
+    t += fmt::format("\nHighest flag: <co>{:.0f}%</c>", mx);
 
-    if (mx >= 50.f) t += "\n\n<cr>Likely hidden NSFW content!</c>";
-    else if (mx >= 30.f) t += "\n\n<cy>Suspicious - check before streaming</c>";
-    else if (mx >= 15.f) t += "\n\n<cg>Minor flags - probably fine</c>";
-    else t += "\n\n<cg>Looks clean!</c>";
+    if (mx >= 50.f)
+        t += "\n\n<cr>Likely NSFW - check the level before streaming!</c>";
+    else if (mx >= 30.f)
+        t += "\n\n<cy>Possibly suspicious - worth checking before streaming</c>";
+    else if (mx >= 15.f)
+        t += "\n\n<cg>Minor flags - likely safe, but a quick check doesn't hurt</c>";
+    else
+        t += "\n\n<cg>No suspicious patterns found - looks safe!</c>";
 
     t += fmt::format("\n\n<cs>{} objects | {:.1f}ms</c>", r.objectsScanned, r.scanTimeMs);
+
+    t += "\n\n<co>This mod is still in beta.</c>\n"
+         "<cs>Do not rely on it fully.</c>\n"
+         "<cs>Always check the level yourself before</c>\n"
+         "<cs>banning a user or going live.</cs>\n"
+         "<cs>False positives and negatives can occur.</c>";
+
     return t;
 }
 
