@@ -1,15 +1,15 @@
 # NSFW Level Detector
 
-A Geode mod for checking suspicious Geometry Dash levels before playing them on stream.
+A Geode mod for checking suspicious Geometry Dash levels before or during play.
 
-This version uses a lightweight heuristic scan and shows percentage breakdowns like:
+This version scans **loaded PlayLayer objects** instead of relying on level strings,
+which makes detection more reliable for downloaded / online levels.
 
-- Art Detection - 15%
-- Lag Machine - 85%
-- Color Tricks - 40%
-- Camera Tricks - 20%
-- Toggle Reveals - 10%
-- Alpha Flashing - 5%
-- Total - 175%
-
-If a level's data is not loaded yet, the mod will say so instead of pretending the level is safe.
+Output example:
+- Art Detection - 10%
+- Lag Machine - 90%
+- Color Tricks - 20%
+- Camera Tricks - 15%
+- Toggle Reveals - 5%
+- Alpha Flashing - 10%
+- Total - 150%

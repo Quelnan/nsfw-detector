@@ -5,16 +5,12 @@
 
 using namespace geode::prelude;
 
+static int g_pendingScanLevelID = 0;
+static bool g_forceScanOnNextPlay = false;
+
 static std::string buildScanText(ScanResult const& result) {
     if (result.objectsScanned == 0) {
-        std::string msg = "No level objects were scanned.\n\n";
-        for (auto const& c : result.categories) {
-            for (auto const& reason : c.reasons) {
-                msg += fmt::format("{}\n", reason);
-            }
-        }
-        msg += "\nTry scanning after the level is fully loaded.";
-        return msg;
+        return "No loaded objects were scanned.\n\nTry entering the level first.";
     }
 
     std::string text;
@@ -81,11 +77,12 @@ class $modify(NSFWLevelInfoLayer, LevelInfoLayer) {
     void onScan(CCObject*) {
         if (!m_level) return;
 
-        auto result = NSFWDetector::get()->scanLevel(m_level);
+        g_pendingScanLevelID = (int)m_level->m_levelID.value();
+        g_forceScanOnNextPlay = true;
 
         FLAlertLayer::create(
             "NSFW Scanner",
-            buildScanText(result),
+            "Scan queued.\n\nStart the level and the mod will scan the loaded objects automatically.",
             "OK"
         )->show();
     }
@@ -94,12 +91,28 @@ class $modify(NSFWLevelInfoLayer, LevelInfoLayer) {
 class $modify(NSFWPlayLayer, PlayLayer) {
     bool init(GJGameLevel* level, bool useReplay, bool dontCreateObjects) {
         if (!PlayLayer::init(level, useReplay, dontCreateObjects)) return false;
-        if (!Mod::get()->getSettingValue<bool>("auto-scan")) return true;
 
-        int threshold = Mod::get()->getSettingValue<int64_t>("warn-threshold");
+        bool autoScan = Mod::get()->getSettingValue<bool>("auto-scan");
+        bool pendingMatches = g_forceScanOnNextPlay && level && (int)level->m_levelID.value() == g_pendingScanLevelID;
 
-        Loader::get()->queueInMainThread([level, threshold]() {
-            auto result = NSFWDetector::get()->scanLevel(level);
+        if (!autoScan && !pendingMatches) return true;
+
+        Loader::get()->queueInMainThread([this, level, pendingMatches]() {
+            auto result = NSFWDetector::get()->scanPlayLayer(this);
+
+            if (pendingMatches) {
+                g_forceScanOnNextPlay = false;
+                g_pendingScanLevelID = 0;
+
+                FLAlertLayer::create(
+                    "NSFW Scan Result",
+                    buildScanText(result),
+                    "OK"
+                )->show();
+                return;
+            }
+
+            int threshold = Mod::get()->getSettingValue<int64_t>("warn-threshold");
 
             float maxPct = 0.f;
             std::string maxName = "None";

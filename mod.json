@@ -6,9 +6,9 @@
     },
     "id": "quelnan.nsfw-detector",
     "name": "NSFW Level Detector",
-    "version": "v1.0.0",
+    "version": "v1.1.0",
     "developer": "Quelnan",
-    "description": "Detect hidden NSFW tricks in Geometry Dash levels.",
+    "description": "Detect hidden NSFW tricks in Geometry Dash levels using loaded PlayLayer objects.",
     "tags": ["utility", "interface"],
     "settings": {
         "auto-scan": {

@@ -24,7 +24,7 @@ class NSFWDetector {
 public:
     static NSFWDetector* get();
 
-    ScanResult scanLevel(GJGameLevel* level);
+    ScanResult scanPlayLayer(PlayLayer* playLayer);
 
     static cocos2d::ccColor3B colorForPercent(float p);
     void setSensitivity(int s);
@@ -33,6 +33,4 @@ public:
 private:
     int m_sensitivity = 50;
     static NSFWDetector* s_instance;
-
-    ScanResult scanLevelString(std::string const& levelString);
 };

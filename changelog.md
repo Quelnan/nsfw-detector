@@ -1,7 +1,6 @@
 # Changelog
 
-## v1.0.0
-- Initial release
-- Added level info scan button
-- Added basic trigger-density heuristic scanning
-- Added auto-scan option in PlayLayer
+## v1.1.0
+- Switched to PlayLayer object scanning
+- Added pending scan flow from LevelInfo button
+- Removed unstable custom popup code
