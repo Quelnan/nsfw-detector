@@ -1,37 +1,15 @@
 {
     "geode": "5.3.0",
-    "gd": {
-        "win": "2.2081",
-        "android": "2.2081"
-    },
+    "gd": { "win": "2.2081", "android": "2.2081" },
     "id": "quelnan.nsfw-detector",
     "name": "NSFW Level Detector",
-    "version": "v1.2.0",
+    "version": "v1.3.0",
     "developer": "Quelnan",
-    "description": "Detect hidden NSFW tricks in GD levels before playing them.",
+    "description": "Detect hidden NSFW tricks in GD levels using pattern analysis.",
     "tags": ["utility", "interface"],
     "settings": {
-        "auto-scan": {
-            "name": "Auto-Scan on Level Load",
-            "description": "Scan automatically when entering a level",
-            "type": "bool",
-            "default": false
-        },
-        "sensitivity": {
-            "name": "Sensitivity",
-            "description": "Higher = more detections but more false positives",
-            "type": "int",
-            "default": 50,
-            "min": 0,
-            "max": 100
-        },
-        "warn-threshold": {
-            "name": "Warn Threshold",
-            "description": "Show warning if any category exceeds this %",
-            "type": "int",
-            "default": 60,
-            "min": 1,
-            "max": 100
-        }
+        "auto-scan": { "name": "Auto-Scan", "type": "bool", "default": false },
+        "sensitivity": { "name": "Sensitivity", "type": "int", "default": 50, "min": 0, "max": 100 },
+        "warn-threshold": { "name": "Warn Threshold", "type": "int", "default": 40, "min": 1, "max": 100 }
     }
 }

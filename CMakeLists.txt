@@ -1,19 +1,11 @@
 cmake_minimum_required(VERSION 3.21)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-project(NSFWDetector VERSION 1.2.0)
-
-add_library(${PROJECT_NAME} SHARED
-    src/main.cpp
-    src/NSFWDetector.cpp
-)
-
+project(NSFWDetector VERSION 1.3.0)
+add_library(${PROJECT_NAME} SHARED src/main.cpp src/NSFWDetector.cpp)
 target_include_directories(${PROJECT_NAME} PRIVATE src)
-
 if (NOT DEFINED ENV{GEODE_SDK})
-    message(FATAL_ERROR "GEODE_SDK environment variable is not set")
+    message(FATAL_ERROR "GEODE_SDK not set")
 endif()
-
 add_subdirectory($ENV{GEODE_SDK} ${CMAKE_CURRENT_BINARY_DIR}/geode)
 setup_geode_mod(${PROJECT_NAME})

@@ -2,11 +2,12 @@
 #include <Geode/Geode.hpp>
 #include <vector>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 using namespace geode::prelude;
 
 struct CategoryScore {
-    std::string id;
     std::string name;
     float percent = 0.f;
     cocos2d::ccColor3B color = {255,255,255};
@@ -18,22 +19,31 @@ struct ScanResult {
     float totalPercent = 0.f;
     int objectsScanned = 0;
     float scanTimeMs = 0.f;
-    bool dataAvailable = false;
     std::string error;
+};
+
+struct LevelObject {
+    int id = 0;
+    float x = 0, y = 0;
+    int mainColor = 0;
+    int detailColor = 0;
+    int targetColor = 0;
+    int targetGroup = 0;
+    float moveX = 0, moveY = 0;
+    float opacity = 1.f;
+    float duration = 0.f;
+    std::vector<int> groups;
 };
 
 class NSFWDetector {
 public:
     static NSFWDetector* get();
-
     ScanResult scanLevel(GJGameLevel* level);
-
     static cocos2d::ccColor3B colorForPercent(float p);
-
 private:
-    int m_sensitivity = 50;
-    static NSFWDetector* s_instance;
-
-    std::string getDecodedLevelData(GJGameLevel* level);
-    ScanResult analyzeDecodedData(std::string const& data);
+    int m_sens = 50;
+    static NSFWDetector* s_inst;
+    std::string decodeLevelData(GJGameLevel* level);
+    std::vector<LevelObject> parseObjects(std::string const& data);
+    ScanResult analyze(std::vector<LevelObject> const& objects);
 };
