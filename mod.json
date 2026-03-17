@@ -1,0 +1,37 @@
+{
+    "geode": "3.4.0",
+    "gd": {
+        "win": "2.206",
+        "android": "2.206"
+    },
+    "id": "your.nsfw-detector",
+    "name": "NSFW Level Detector",
+    "version": "v1.0.0",
+    "developer": "YourName",
+    "description": "Detects potentially hidden NSFW content in levels. Shows detailed breakdown of suspicion categories for streamers.",
+    "tags": ["utility", "enhancement", "interface"],
+    "settings": {
+        "auto-scan": {
+            "name": "Auto-Scan on Level Load",
+            "description": "Automatically scan levels when entering play mode",
+            "type": "bool",
+            "default": false
+        },
+        "sensitivity": {
+            "name": "Detection Sensitivity",
+            "description": "Higher values catch more but may have more false positives (0-100)",
+            "type": "int",
+            "default": 50,
+            "min": 0,
+            "max": 100
+        },
+        "warn-threshold": {
+            "name": "Warning Threshold (%)",
+            "description": "Show popup warning if any category exceeds this percentage",
+            "type": "int",
+            "default": 60,
+            "min": 10,
+            "max": 100
+        }
+    }
+}
