@@ -25,18 +25,7 @@ cocos2d::ccColor3B NSFWDetector::colorForPercent(float p) {
 std::string NSFWDetector::getDecodedLevelData(GJGameLevel* level) {
     if (!level) return "";
 
-    // Try m_levelString first
     std::string raw = level->m_levelString;
-
-    // If empty, try to get it from the level manager
-    if (raw.empty()) {
-        auto glm = GameLevelManager::sharedState();
-        if (glm) {
-            // getMainLevel works for main levels
-            // for online levels the data should be cached after download
-            raw = level->m_levelString;
-        }
-    }
 
     if (raw.empty()) {
         log::warn("Level string is empty for '{}'", level->m_levelName);
@@ -45,31 +34,43 @@ std::string NSFWDetector::getDecodedLevelData(GJGameLevel* level) {
 
     log::info("Raw level string size: {}", raw.size());
 
-    // Try to decompress
-    // GD level strings can be:
-    // 1. Already decompressed (starts with object data like "kS38,...")
-    // 2. Base64 + gzip compressed
-
-    // Check if already decompressed
-    if (raw.find(',') < 50 && raw.find(';') != std::string::npos) {
+    // Check if already decompressed (contains commas and semicolons = raw object data)
+    if (raw.size() > 10 && raw.find(';') != std::string::npos && raw.find(',') < 50) {
         log::info("Level data appears already decompressed, size: {}", raw.size());
         return raw;
     }
 
-    // Try base64 decode + inflate using cocos/zlib
+    // Try base64 decode + gzip inflate
     try {
-        unsigned char* decoded = nullptr;
-        unsigned int decodedLen = 0;
+        // Use cocos2d's ZipUtils which handles the full GD level decompression
+        // GD levels are typically base64 + gzip
+        // ZipUtils::decompressString2 handles this exact case
 
-        // base64 decode
+        bool needsFree = false;
+        unsigned char* decoded = nullptr;
+        int decodedLen = 0;
+
+        // Try the Geode/cocos utility for base64
+        std::string b64 = raw;
+
+        // GD uses URL-safe base64, replace chars
+        for (auto& c : b64) {
+            if (c == '-') c = '+';
+            if (c == '_') c = '/';
+        }
+
+        // Pad if needed
+        while (b64.size() % 4 != 0) b64 += '=';
+
+        // Manual base64 decode using cocos
         decodedLen = cocos2d::base64Decode(
-            (unsigned char const*)raw.c_str(),
-            (unsigned int)raw.size(),
+            (const unsigned char*)b64.c_str(),
+            (unsigned int)b64.size(),
             &decoded
         );
 
         if (decoded && decodedLen > 0) {
-            // Try gzip inflate
+            // Try gzip decompress
             unsigned char* inflated = nullptr;
             auto inflatedLen = ZipUtils::ccInflateMemory(decoded, decodedLen, &inflated);
 
@@ -78,22 +79,43 @@ std::string NSFWDetector::getDecodedLevelData(GJGameLevel* level) {
             if (inflated && inflatedLen > 0) {
                 std::string result((char*)inflated, inflatedLen);
                 free(inflated);
-                log::info("Decompressed level data: {} bytes", result.size());
+                log::info("Decompressed via base64+gzip: {} bytes", result.size());
                 return result;
             }
             if (inflated) free(inflated);
         }
         if (decoded) free(decoded);
     } catch (...) {
-        log::warn("Exception during decompression");
+        log::warn("Exception during base64+gzip decompression");
     }
 
-    // If all else fails, maybe it's just raw text
+    // Fallback: try ZipUtils directly on the raw data
+    try {
+        unsigned char* inflated = nullptr;
+        auto inflatedLen = ZipUtils::ccInflateMemory(
+            (unsigned char*)raw.c_str(),
+            (unsigned int)raw.size(),
+            &inflated
+        );
+
+        if (inflated && inflatedLen > 0) {
+            std::string result((char*)inflated, inflatedLen);
+            free(inflated);
+            log::info("Decompressed via raw inflate: {} bytes", result.size());
+            return result;
+        }
+        if (inflated) free(inflated);
+    } catch (...) {
+        log::warn("Raw inflate failed too");
+    }
+
+    // Last resort: if it has semicolons, maybe it's usable as-is
     if (raw.find(';') != std::string::npos) {
+        log::info("Using raw data as-is (has semicolons)");
         return raw;
     }
 
-    log::warn("Could not decode level data");
+    log::warn("Could not decode level data at all");
     return "";
 }
 
@@ -115,7 +137,6 @@ static std::vector<ParsedObj> parseObjects(std::string const& data) {
 
         ParsedObj obj;
 
-        // Parse key,value pairs
         std::istringstream objStream(objStr);
         std::string token;
         std::vector<std::string> tokens;
@@ -164,7 +185,6 @@ ScanResult NSFWDetector::analyzeDecodedData(std::string const& data) {
 
     float sens = m_sensitivity / 50.f;
 
-    // Count triggers and positions
     int colorTriggers = 0, pulseTriggers = 0, alphaTriggers = 0;
     int moveTriggers = 0, toggleTriggers = 0, spawnTriggers = 0;
     int cameraOffset = 0, cameraStatic = 0, editObject = 0;
@@ -209,7 +229,6 @@ ScanResult NSFWDetector::analyzeDecodedData(std::string const& data) {
         result.categories.push_back(c);
     };
 
-    // Art
     float artPct = 0.f;
     std::vector<std::string> artR;
     if (result.objectsScanned > 1500) { artPct += 10; artR.push_back("Large object count"); }
@@ -219,7 +238,6 @@ ScanResult NSFWDetector::analyzeDecodedData(std::string const& data) {
     if (editObject > 10) { artPct += 10; artR.push_back("Edit object triggers"); }
     makeCategory("art", "Art Detection", artPct, artR);
 
-    // Lag
     float lagPct = 0.f;
     std::vector<std::string> lagR;
     if (spawnTriggers > 30) { lagPct += 30; lagR.push_back(fmt::format("{} spawn triggers", spawnTriggers)); }
@@ -230,7 +248,6 @@ ScanResult NSFWDetector::analyzeDecodedData(std::string const& data) {
     if (denseBins > 0) { lagPct += std::min(25.f, denseBins * 8.f); lagR.push_back(fmt::format("{} dense trigger zones", denseBins)); }
     makeCategory("lag", "Lag Machine", lagPct, lagR);
 
-    // Color
     float colPct = 0.f;
     std::vector<std::string> colR;
     if (colorTriggers > 20) { colPct += 20; colR.push_back(fmt::format("{} color triggers", colorTriggers)); }
@@ -238,7 +255,6 @@ ScanResult NSFWDetector::analyzeDecodedData(std::string const& data) {
     if (pulseTriggers > 20) { colPct += 10; colR.push_back("Heavy visual triggers"); }
     makeCategory("color", "Color Tricks", colPct, colR);
 
-    // Camera
     float camPct = 0.f;
     std::vector<std::string> camR;
     if (cameraOffset > 0) { camPct += std::min(35.f, cameraOffset * 5.f); camR.push_back(fmt::format("{} camera offset", cameraOffset)); }
@@ -247,14 +263,12 @@ ScanResult NSFWDetector::analyzeDecodedData(std::string const& data) {
     if (highObjects > 20 || lowObjects > 20) { camPct += 10; camR.push_back("Off-screen objects"); }
     makeCategory("camera", "Camera Tricks", camPct, camR);
 
-    // Toggle
     float togPct = 0.f;
     std::vector<std::string> togR;
     if (toggleTriggers > 10) { togPct += 20; togR.push_back(fmt::format("{} toggle triggers", toggleTriggers)); }
     if (toggleTriggers > 40) { togPct += 20; togR.push_back("Heavy group visibility"); }
     makeCategory("toggle", "Toggle Reveals", togPct, togR);
 
-    // Alpha
     float alpPct = 0.f;
     std::vector<std::string> alpR;
     if (alphaTriggers > 5) { alpPct += 20; alpR.push_back(fmt::format("{} alpha triggers", alphaTriggers)); }
