@@ -4,18 +4,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 project(NSFWDetector VERSION 1.0.0)
 
-file(GLOB_RECURSE SOURCES
-    src/*.cpp
-    src/*.hpp
+add_library(${PROJECT_NAME} SHARED
+    src/main.cpp
+    src/NSFWDetector.cpp
+    src/ui/ScanPopup.cpp
 )
-
-add_library(${PROJECT_NAME} SHARED ${SOURCES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     src
-    src/analyzers
     src/ui
-    src/utils
 )
 
 if (NOT DEFINED ENV{GEODE_SDK})
