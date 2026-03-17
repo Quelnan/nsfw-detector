@@ -4,7 +4,6 @@
 #include <sstream>
 #include <cmath>
 #include <set>
-#include <numeric>
 
 NSFWDetector* NSFWDetector::s_inst = nullptr;
 
@@ -23,7 +22,6 @@ cocos2d::ccColor3B NSFWDetector::colorForPercent(float p) {
     return {255, 60, 60};
 }
 
-// ---- base64 ----
 static const std::string B64 =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -44,30 +42,18 @@ std::string NSFWDetector::decodeLevelData(GJGameLevel* level) {
     if (!level) return "";
     std::string raw = level->m_levelString;
     if (raw.empty()) return "";
-
-    // Already decompressed?
     if (raw.size() > 10 && raw.find(';') != std::string::npos && raw.find(',') < 50)
         return raw;
-
-    // URL-safe base64
     std::string b64 = raw;
     for (char& c : b64) { if (c=='-') c='+'; else if (c=='_') c='/'; }
-
     auto decoded = b64decode(b64);
     if (decoded.empty()) return "";
-
-    // gzip
     try {
         unsigned char* inflated = nullptr;
         auto len = ZipUtils::ccInflateMemory(decoded.data(), (unsigned int)decoded.size(), &inflated);
-        if (inflated && len > 0) {
-            std::string r((char*)inflated, len);
-            free(inflated);
-            return r;
-        }
+        if (inflated && len > 0) { std::string r((char*)inflated, len); free(inflated); return r; }
         if (inflated) free(inflated);
     } catch (...) {}
-
     std::string s(decoded.begin(), decoded.end());
     if (s.find(';') != std::string::npos) return s;
     return "";
@@ -78,95 +64,110 @@ std::vector<LevelObject> NSFWDetector::parseObjects(std::string const& data) {
     std::istringstream stream(data);
     std::string objStr;
     bool header = true;
-
     while (std::getline(stream, objStr, ';')) {
         if (header) { header = false; continue; }
         if (objStr.empty()) continue;
-
         LevelObject obj;
         std::istringstream os(objStr);
         std::string tok;
         std::vector<std::string> toks;
         while (std::getline(os, tok, ',')) toks.push_back(tok);
-
         for (size_t i = 0; i + 1 < toks.size(); i += 2) {
             int key = 0;
             try { key = std::stoi(toks[i]); } catch (...) { continue; }
             auto const& v = toks[i+1];
-            try {
-                switch (key) {
-                    case 1: obj.id = std::stoi(v); break;
-                    case 2: obj.x = std::stof(v); break;
-                    case 3: obj.y = std::stof(v); break;
-                    case 10: obj.duration = std::stof(v); break;
-                    case 21: obj.mainColor = std::stoi(v); break;
-                    case 22: obj.detailColor = std::stoi(v); break;
-                    case 23: obj.targetColor = std::stoi(v); break;
-                    case 28: obj.moveX = std::stof(v); break;
-                    case 29: obj.moveY = std::stof(v); break;
-                    case 35: obj.opacity = std::stof(v); break;
-                    case 51: obj.targetGroup = std::stoi(v); break;
-                    case 57: {
-                        std::istringstream gs(v);
-                        std::string g;
-                        while (std::getline(gs, g, '.'))
-                            if (!g.empty()) try { obj.groups.push_back(std::stoi(g)); } catch (...) {}
-                        break;
-                    }
+            try { switch (key) {
+                case 1: obj.id = std::stoi(v); break;
+                case 2: obj.x = std::stof(v); break;
+                case 3: obj.y = std::stof(v); break;
+                case 10: obj.duration = std::stof(v); break;
+                case 21: obj.mainColor = std::stoi(v); break;
+                case 22: obj.detailColor = std::stoi(v); break;
+                case 23: obj.targetColor = std::stoi(v); break;
+                case 28: obj.moveX = std::stof(v); break;
+                case 29: obj.moveY = std::stof(v); break;
+                case 35: obj.opacity = std::stof(v); break;
+                case 51: obj.targetGroup = std::stoi(v); break;
+                case 57: {
+                    std::istringstream gs(v); std::string g;
+                    while (std::getline(gs, g, '.'))
+                        if (!g.empty()) try { obj.groups.push_back(std::stoi(g)); } catch (...) {}
+                    break;
                 }
-            } catch (...) {}
+            }} catch (...) {}
         }
         if (obj.id > 0) objects.push_back(obj);
     }
     return objects;
 }
 
-// ---- The actual pattern-based analysis ----
+// Decoration/art object IDs - lines, pixels, slopes, glow, etc.
+// These are what NSFW artists use to draw. Gameplay blocks are NOT art.
+static bool isDecoObject(int id) {
+    // Lines and outlines
+    if (id >= 580 && id <= 590) return true;   // thin lines
+    if (id >= 394 && id <= 400) return true;   // outlines
+    // Slopes and wedges (used for shapes)
+    if (id >= 289 && id <= 310) return true;   // slopes
+    if (id >= 325 && id <= 340) return true;   // more slopes
+    // Pixel-like small blocks
+    if (id == 917) return true;                // pixel
+    // Glow objects
+    if (id >= 501 && id <= 520) return true;   // glow
+    if (id >= 1700 && id <= 1800) return true; // glow v2
+    // Circle/dot decorations
+    if (id >= 725 && id <= 740) return true;
+    // Custom deco objects
+    if (id >= 1764 && id <= 1830) return true;
+    // Half blocks / quarter blocks (used in art)
+    if (id >= 173 && id <= 190) return true;
+    // Various small deco
+    if (id >= 207 && id <= 215) return true;
+    // Arrow/triangle deco
+    if (id >= 467 && id <= 480) return true;
+    return false;
+}
+
+static bool isTrigger(int id) {
+    return id==899||id==901||id==1006||id==1007||id==1049||id==1268||
+           id==1346||id==1347||id==1520||id==1585||id==1595||id==1611||
+           id==1811||id==1815||id==1817||id==1916||id==2062||id==3600||
+           id==2899||id==2903||id==2067||id==3016||id==3660;
+}
 
 ScanResult NSFWDetector::analyze(std::vector<LevelObject> const& objects) {
     using clk = std::chrono::high_resolution_clock;
     auto t0 = clk::now();
     ScanResult result;
     result.objectsScanned = (int)objects.size();
-    if (objects.empty()) {
-        result.error = "No objects parsed";
-        return result;
-    }
+    if (objects.empty()) { result.error = "No objects"; return result; }
 
     float sens = m_sens / 50.f;
 
-    // ===== Classify objects =====
-    // Normal play area: Y roughly -200 to 800
-    constexpr float OFFSCREEN_HIGH = 1200.f;
-    constexpr float OFFSCREEN_LOW = -600.f;
+    constexpr float OFF_HIGH = 1500.f;
+    constexpr float OFF_LOW = -800.f;
 
-    std::vector<LevelObject const*> offscreenObjects;
-    std::vector<LevelObject const*> normalObjects;
-    std::vector<LevelObject const*> allTriggers;
-
-    // Trigger IDs
-    auto isTrigger = [](int id) {
-        return id==899||id==901||id==1006||id==1007||id==1049||id==1268||
-               id==1346||id==1347||id==1520||id==1585||id==1595||id==1611||
-               id==1811||id==1815||id==1817||id==1916||id==2062||id==3600;
-    };
+    // Separate objects by type and location
+    std::vector<LevelObject const*> offscreenDeco;   // deco objects off-screen
+    std::vector<LevelObject const*> normalDeco;      // deco objects in play area
+    std::vector<LevelObject const*> triggers;
+    std::vector<LevelObject const*> offscreenAny;    // any object off-screen
 
     for (auto const& o : objects) {
+        bool offscreen = o.y > OFF_HIGH || o.y < OFF_LOW;
         if (isTrigger(o.id)) {
-            allTriggers.push_back(&o);
+            triggers.push_back(&o);
+        } else if (isDecoObject(o.id)) {
+            if (offscreen) offscreenDeco.push_back(&o);
+            else normalDeco.push_back(&o);
         }
-        if (!isTrigger(o.id)) {
-            if (o.y > OFFSCREEN_HIGH || o.y < OFFSCREEN_LOW) {
-                offscreenObjects.push_back(&o);
-            } else {
-                normalObjects.push_back(&o);
-            }
+        if (offscreen && !isTrigger(o.id)) {
+            offscreenAny.push_back(&o);
         }
     }
 
     auto mk = [&](std::string nm, float p, std::vector<std::string> r) {
-        CategoryScore c;
-        c.name = nm;
+        CategoryScore c; c.name = nm;
         c.percent = std::clamp(p * sens, 0.f, 100.f);
         c.color = colorForPercent(c.percent);
         c.reasons = std::move(r);
@@ -174,209 +175,210 @@ ScanResult NSFWDetector::analyze(std::vector<LevelObject> const& objects) {
         result.categories.push_back(c);
     };
 
-    // ===== 1. OFF-SCREEN ART DETECTION =====
-    // Key insight: normal levels rarely have 20+ non-trigger objects far off-screen
-    // NSFW levels place entire art pieces above Y=1200 or below Y=-600
+    // ===== 1. OFF-SCREEN ART (deco objects only) =====
     {
         float pct = 0;
         std::vector<std::string> reasons;
 
-        int offCount = (int)offscreenObjects.size();
-        float offRatio = (float)offCount / std::max(1, result.objectsScanned);
+        int decoOff = (int)offscreenDeco.size();
 
-        // Check if off-screen objects form a dense cluster (art-like)
-        if (offCount > 50) {
-            // Find bounding box of off-screen cluster
-            float minX=1e9, maxX=-1e9, minY=1e9, maxY=-1e9;
-            for (auto* o : offscreenObjects) {
-                minX = std::min(minX, o->x); maxX = std::max(maxX, o->x);
-                minY = std::min(minY, o->y); maxY = std::max(maxY, o->y);
+        if (decoOff > 30) {
+            // Check cluster density
+            float minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9;
+            for (auto* o : offscreenDeco) {
+                minX=std::min(minX,o->x); maxX=std::max(maxX,o->x);
+                minY=std::min(minY,o->y); maxY=std::max(maxY,o->y);
             }
-            float w = maxX - minX, h = maxY - minY;
+            float w = maxX-minX, h = maxY-minY;
+            float area = std::max(w*h, 1.f);
+            float density = decoOff / (area / 10000.f);
 
-            // Art has notable height AND width (not just scattered objects)
-            if (w > 100 && h > 100) {
-                pct += 40;
-                reasons.push_back(fmt::format("{} objects off-screen in {:.0f}x{:.0f} area", offCount, w, h));
-            }
-
-            // Very dense cluster = almost certainly art
-            float area = std::max(w * h, 1.f);
-            float density = offCount / (area / 10000.f);
-            if (density > 2.f) {
+            if (w > 100 && h > 100 && density > 1.5f) {
+                pct += 50;
+                reasons.push_back(fmt::format("{} deco objects in dense off-screen cluster ({:.0f}x{:.0f})", decoOff, w, h));
+            } else if (decoOff > 80) {
                 pct += 30;
-                reasons.push_back(fmt::format("Dense cluster (density: {:.1f})", density));
+                reasons.push_back(fmt::format("{} deco objects off-screen", decoOff));
             }
-        } else if (offCount > 20) {
-            pct += 15;
-            reasons.push_back(fmt::format("{} objects placed off-screen", offCount));
         }
 
         mk("Off-Screen Art", pct, reasons);
     }
 
-    // ===== 2. COLOR CHANNEL ANALYSIS =====
-    // Key insight: NSFW levels color off-screen objects via color triggers
-    // Normal levels don't have color triggers targeting channels used only by off-screen objects
+    // ===== 2. HIDDEN COLORING (stacked color triggers) =====
     {
         float pct = 0;
         std::vector<std::string> reasons;
 
-        // Find color channels used by off-screen objects
-        std::unordered_set<int> offscreenChannels;
-        for (auto* o : offscreenObjects) {
-            if (o->mainColor > 0) offscreenChannels.insert(o->mainColor);
-            if (o->detailColor > 0) offscreenChannels.insert(o->detailColor);
-        }
+        // Detect color triggers stacked at the same position
+        // This is the "don't color when making, color with triggers" technique
+        struct PosKey {
+            int x, y;
+            bool operator==(PosKey const& o) const { return x==o.x && y==o.y; }
+        };
+        struct PosHash {
+            size_t operator()(PosKey const& k) const {
+                return std::hash<int>()(k.x) ^ (std::hash<int>()(k.y) << 16);
+            }
+        };
 
-        // Find color channels used by normal objects
-        std::unordered_set<int> normalChannels;
-        for (auto* o : normalObjects) {
-            if (o->mainColor > 0) normalChannels.insert(o->mainColor);
-            if (o->detailColor > 0) normalChannels.insert(o->detailColor);
-        }
+        std::unordered_map<PosKey, int, PosHash> colorTriggerStacks;
+        int totalColorTriggers = 0;
 
-        // Channels ONLY used by off-screen objects = suspicious
-        std::unordered_set<int> exclusiveOffscreenChannels;
-        for (int ch : offscreenChannels) {
-            if (!normalChannels.count(ch)) {
-                exclusiveOffscreenChannels.insert(ch);
+        for (auto* t : triggers) {
+            if (t->id == 899 || t->id == 1006) { // color or pulse trigger
+                PosKey pk{(int)(t->x / 3.f), (int)(t->y / 3.f)}; // quantize to ~3 units
+                colorTriggerStacks[pk]++;
+                totalColorTriggers++;
             }
         }
 
-        // Color triggers targeting those exclusive channels
-        int suspiciousColorTriggers = 0;
-        for (auto* t : allTriggers) {
-            if (t->id == 899 || t->id == 1006) { // color or pulse
-                if (exclusiveOffscreenChannels.count(t->targetColor)) {
-                    suspiciousColorTriggers++;
-                }
-            }
+        // Count positions with many stacked color triggers
+        int heavyStacks = 0;
+        int maxStack = 0;
+        for (auto& [pos, count] : colorTriggerStacks) {
+            maxStack = std::max(maxStack, count);
+            if (count >= 8) heavyStacks++; // 8+ color triggers at same spot
         }
 
-        if (suspiciousColorTriggers > 3) {
-            pct += 50;
-            reasons.push_back(fmt::format("{} color triggers target off-screen-only channels", suspiciousColorTriggers));
+        if (heavyStacks > 0) {
+            pct += std::min(60.f, heavyStacks * 12.f);
+            reasons.push_back(fmt::format("{} positions with 8+ stacked color triggers (max: {})", heavyStacks, maxStack));
         }
-        if (exclusiveOffscreenChannels.size() > 5) {
-            pct += 20;
-            reasons.push_back(fmt::format("{} color channels used only by off-screen objects", exclusiveOffscreenChannels.size()));
+
+        // Also check: color triggers targeting channels used ONLY by off-screen objects
+        std::unordered_set<int> offCh, normCh;
+        for (auto* o : offscreenDeco) {
+            if (o->mainColor > 0) offCh.insert(o->mainColor);
+            if (o->detailColor > 0) offCh.insert(o->detailColor);
+        }
+        for (auto* o : normalDeco) {
+            if (o->mainColor > 0) normCh.insert(o->mainColor);
+            if (o->detailColor > 0) normCh.insert(o->detailColor);
+        }
+
+        int exclusiveCount = 0;
+        for (int ch : offCh) {
+            if (!normCh.count(ch)) exclusiveCount++;
+        }
+
+        int susColorTrigs = 0;
+        for (auto* t : triggers) {
+            if ((t->id == 899 || t->id == 1006) && offCh.count(t->targetColor) && !normCh.count(t->targetColor))
+                susColorTrigs++;
+        }
+
+        if (susColorTrigs > 5 && exclusiveCount > 3) {
+            pct += 30;
+            reasons.push_back(fmt::format("{} color triggers target {} off-screen-only channels", susColorTrigs, exclusiveCount));
         }
 
         mk("Hidden Coloring", pct, reasons);
     }
 
-    // ===== 3. LAG MACHINE DETECTION =====
-    // Key insight: lag machines pack tons of triggers in a TINY area (not spread across level)
-    // Normal levels spread triggers across the full length
+    // ===== 3. LAG MACHINE =====
     {
         float pct = 0;
         std::vector<std::string> reasons;
 
-        // Bin triggers by X position (60-unit bins ~ 2 blocks)
         std::unordered_map<int, int> bins;
-        for (auto* t : allTriggers) bins[(int)(t->x / 60.f)]++;
+        for (auto* t : triggers) bins[(int)(t->x / 60.f)]++;
 
         int extremeBins = 0;
-        int maxBinCount = 0;
-        for (auto& [bin, count] : bins) {
-            maxBinCount = std::max(maxBinCount, count);
-            if (count >= 80) extremeBins++;  // 80+ triggers in 2 blocks = insane
-        }
+        for (auto& [b, c] : bins) if (c >= 80) extremeBins++;
 
         if (extremeBins > 0) {
             pct += std::min(60.f, extremeBins * 25.f);
-            reasons.push_back(fmt::format("{} zones with 80+ triggers packed together", extremeBins));
+            reasons.push_back(fmt::format("{} zones with 80+ triggers in ~60 units", extremeBins));
         }
 
-        // Spawn trigger loops: spawn triggers whose target group contains another spawn trigger
-        std::unordered_map<int, std::vector<int>> spawnGroupToTarget; // group -> target groups
-        for (auto* t : allTriggers) {
-            if (t->id == 1268) { // spawn
-                for (int g : t->groups) {
-                    spawnGroupToTarget[g].push_back(t->targetGroup);
-                }
+        // Spawn loops
+        std::unordered_map<int, std::vector<int>> spawnMap;
+        for (auto* t : triggers) {
+            if (t->id == 1268) {
+                for (int g : t->groups) spawnMap[g].push_back(t->targetGroup);
             }
         }
-        // Simple loop check: A->B->A
-        for (auto& [grpA, targets] : spawnGroupToTarget) {
-            for (int grpB : targets) {
-                if (spawnGroupToTarget.count(grpB)) {
-                    for (int grpC : spawnGroupToTarget[grpB]) {
-                        if (grpC == grpA) {
+        bool foundLoop = false;
+        for (auto& [a, targets] : spawnMap) {
+            for (int b : targets) {
+                if (spawnMap.count(b)) {
+                    for (int c : spawnMap[b]) {
+                        if (c == a) {
                             pct += 40;
-                            reasons.push_back(fmt::format("Spawn trigger loop: group {} <-> {}", grpA, grpB));
-                            goto lagDone;
+                            reasons.push_back(fmt::format("Spawn loop: group {} <-> {}", a, b));
+                            foundLoop = true; break;
                         }
                     }
                 }
+                if (foundLoop) break;
             }
+            if (foundLoop) break;
         }
-        lagDone:
 
         mk("Lag Machine", pct, reasons);
     }
 
     // ===== 4. CAMERA TRICKS =====
-    // Key insight: camera triggers with extreme Y offset pointing to where off-screen objects exist
     {
         float pct = 0;
         std::vector<std::string> reasons;
 
-        for (auto* t : allTriggers) {
-            if (t->id == 1916 || t->id == 2062) { // camera offset / static
-                float absY = std::abs(t->moveY);
-                if (absY > 800.f) {
-                    // Check if there are objects near where the camera would point
-                    float destY = t->y + t->moveY;
-                    int nearbyOffscreen = 0;
-                    for (auto* o : offscreenObjects) {
-                        if (std::abs(o->y - destY) < 500.f) nearbyOffscreen++;
+        for (auto* t : triggers) {
+            // Static camera trigger (2062) or camera offset (1916)
+            // The key sign: moveY pointing to extreme positions
+            if (t->id == 2062 || t->id == 1916) {
+                float destY = t->moveY; // for offset this is the offset amount
+                if (t->id == 2062) destY = t->y + t->moveY; // static = absolute target
+
+                // Check if pointing way above or below play area
+                if (std::abs(destY) > 1200.f || destY > OFF_HIGH || destY < OFF_LOW) {
+                    // Is there actually content at the destination?
+                    int contentNearDest = 0;
+                    for (auto* o : offscreenAny) {
+                        if (std::abs(o->y - destY) < 600.f) contentNearDest++;
                     }
-                    if (nearbyOffscreen > 10) {
-                        pct += 50;
-                        reasons.push_back(fmt::format("Camera trigger jumps to Y={:.0f} where {} objects exist", destY, nearbyOffscreen));
+
+                    if (contentNearDest > 15) {
+                        pct += 60;
+                        reasons.push_back(fmt::format("Camera/static trigger to Y={:.0f} where {} objects exist", destY, contentNearDest));
                         break;
-                    } else if (absY > 1500.f) {
+                    } else {
                         pct += 20;
-                        reasons.push_back(fmt::format("Camera trigger with extreme offset Y={:.0f}", t->moveY));
+                        reasons.push_back(fmt::format("Camera trigger to extreme Y={:.0f}", destY));
                     }
                 }
             }
 
-            // Move triggers with extreme distance
+            // Move triggers with extreme teleport distance
             if (t->id == 901) {
                 float dist = std::sqrt(t->moveX*t->moveX + t->moveY*t->moveY);
-                if (dist > 3000.f) {
-                    pct += 15;
-                    reasons.push_back(fmt::format("Move trigger teleports {:.0f} units", dist));
+                if (dist > 5000.f) {
+                    pct += 20;
+                    reasons.push_back(fmt::format("Move trigger teleport: {:.0f} units", dist));
                 }
             }
         }
 
-        mk("Camera Tricks", pct, reasons);
+        mk("Camera Tricks", std::min(pct, 80.f), reasons);
     }
 
     // ===== 5. TOGGLE REVEALS =====
-    // Key insight: toggle triggers controlling groups with many OFF-SCREEN objects
     {
         float pct = 0;
         std::vector<std::string> reasons;
 
-        // Map groups to their off-screen object count
-        std::unordered_map<int, int> groupOffscreenCount;
-        for (auto* o : offscreenObjects) {
-            for (int g : o->groups) groupOffscreenCount[g]++;
+        std::unordered_map<int, int> grpOffDecoCount;
+        for (auto* o : offscreenDeco) {
+            for (int g : o->groups) grpOffDecoCount[g]++;
         }
 
-        // Check toggle triggers
-        for (auto* t : allTriggers) {
-            if (t->id == 1049) { // toggle
-                int target = t->targetGroup;
-                if (groupOffscreenCount.count(target) && groupOffscreenCount[target] > 20) {
-                    pct += 40;
-                    reasons.push_back(fmt::format("Toggle controls group {} with {} off-screen objects",
-                        target, groupOffscreenCount[target]));
+        for (auto* t : triggers) {
+            if (t->id == 1049) {
+                int tgt = t->targetGroup;
+                if (grpOffDecoCount.count(tgt) && grpOffDecoCount[tgt] > 15) {
+                    pct += 50;
+                    reasons.push_back(fmt::format("Toggle controls group {} with {} off-screen deco objects", tgt, grpOffDecoCount[tgt]));
                     break;
                 }
             }
@@ -386,29 +388,27 @@ ScanResult NSFWDetector::analyze(std::vector<LevelObject> const& objects) {
     }
 
     // ===== 6. ALPHA FLASHING =====
-    // Key insight: rapid alpha 0->1->0 on channels with off-screen objects
     {
         float pct = 0;
         std::vector<std::string> reasons;
 
-        // Find alpha triggers and check for rapid on/off patterns
-        std::unordered_map<int, std::vector<LevelObject const*>> alphaByChannel;
-        for (auto* t : allTriggers) {
-            if (t->id == 1007) alphaByChannel[t->targetColor].push_back(t);
+        std::unordered_set<int> offDecoChannels;
+        for (auto* o : offscreenDeco) {
+            if (o->mainColor > 0) offDecoChannels.insert(o->mainColor);
+            if (o->detailColor > 0) offDecoChannels.insert(o->detailColor);
         }
 
-        // Get off-screen channels
-        std::unordered_set<int> offCh;
-        for (auto* o : offscreenObjects) {
-            if (o->mainColor > 0) offCh.insert(o->mainColor);
-            if (o->detailColor > 0) offCh.insert(o->detailColor);
+        std::unordered_map<int, int> alphaOnOffCh;
+        for (auto* t : triggers) {
+            if (t->id == 1007 && offDecoChannels.count(t->targetColor)) {
+                alphaOnOffCh[t->targetColor]++;
+            }
         }
 
-        for (auto& [ch, triggers] : alphaByChannel) {
-            if (!offCh.count(ch)) continue; // only care about off-screen channels
-            if (triggers.size() >= 3) {
-                pct += 40;
-                reasons.push_back(fmt::format("Alpha trigger pattern on off-screen channel {} ({} triggers)", ch, triggers.size()));
+        for (auto& [ch, count] : alphaOnOffCh) {
+            if (count >= 3) {
+                pct += 50;
+                reasons.push_back(fmt::format("{} alpha triggers on off-screen deco channel {}", count, ch));
                 break;
             }
         }
@@ -423,22 +423,11 @@ ScanResult NSFWDetector::analyze(std::vector<LevelObject> const& objects) {
 ScanResult NSFWDetector::scanLevel(GJGameLevel* level) {
     ScanResult fail;
     if (!level) { fail.error = "No level"; return fail; }
-
     log::info("Scanning '{}' (ID:{})", level->m_levelName, level->m_levelID.value());
-
     auto data = decodeLevelData(level);
-    if (data.empty()) {
-        fail.error = "Could not load level data.\nMake sure the level is downloaded.";
-        return fail;
-    }
-
-    auto objects = parseObjects(data);
-    log::info("Parsed {} objects", objects.size());
-
-    if (objects.empty()) {
-        fail.error = "Parsed 0 objects from level data.";
-        return fail;
-    }
-
-    return analyze(objects);
+    if (data.empty()) { fail.error = "Could not load level data.\nMake sure it's downloaded."; return fail; }
+    auto objs = parseObjects(data);
+    if (objs.empty()) { fail.error = "Parsed 0 objects."; return fail; }
+    log::info("Parsed {} objects", objs.size());
+    return analyze(objs);
 }

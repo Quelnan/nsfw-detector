@@ -25,13 +25,10 @@ struct ScanResult {
 struct LevelObject {
     int id = 0;
     float x = 0, y = 0;
-    int mainColor = 0;
-    int detailColor = 0;
-    int targetColor = 0;
-    int targetGroup = 0;
+    int mainColor = 0, detailColor = 0;
+    int targetColor = 0, targetGroup = 0;
     float moveX = 0, moveY = 0;
-    float opacity = 1.f;
-    float duration = 0.f;
+    float opacity = 1.f, duration = 0.f;
     std::vector<int> groups;
 };
 
