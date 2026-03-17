@@ -48,7 +48,6 @@ ScanResult NSFWDetector::scanLevelString(std::string const& levelString) {
 
     float sens = m_sensitivity / 50.f;
 
-    // These are intentionally heuristic / lightweight for now.
     int colorTriggers = countSubstr(levelString, "1,899,");
     int pulseTriggers = countSubstr(levelString, "1,1006,");
     int alphaTriggers = countSubstr(levelString, "1,1007,");
@@ -73,7 +72,6 @@ ScanResult NSFWDetector::scanLevelString(std::string const& levelString) {
         result.categories.push_back(c);
     };
 
-    // Art detection
     float artPct = 0.f;
     std::vector<std::string> artReasons;
     if (result.objectsScanned > 1500) {
@@ -90,7 +88,6 @@ ScanResult NSFWDetector::scanLevelString(std::string const& levelString) {
     }
     makeCategory("art", "Art Detection", artPct, artReasons);
 
-    // Lag machine
     float lagPct = 0.f;
     std::vector<std::string> lagReasons;
     if (spawnTriggers > 30) {
@@ -111,7 +108,6 @@ ScanResult NSFWDetector::scanLevelString(std::string const& levelString) {
     }
     makeCategory("lag", "Lag Machine", lagPct, lagReasons);
 
-    // Color tricks
     float colorPct = 0.f;
     std::vector<std::string> colorReasons;
     if (colorTriggers > 20) {
@@ -128,7 +124,6 @@ ScanResult NSFWDetector::scanLevelString(std::string const& levelString) {
     }
     makeCategory("color", "Color Tricks", colorPct, colorReasons);
 
-    // Camera tricks
     float camPct = 0.f;
     std::vector<std::string> camReasons;
     if (cameraOffset > 0) {
@@ -145,7 +140,6 @@ ScanResult NSFWDetector::scanLevelString(std::string const& levelString) {
     }
     makeCategory("camera", "Camera Tricks", camPct, camReasons);
 
-    // Toggle reveals
     float togglePct = 0.f;
     std::vector<std::string> toggleReasons;
     if (toggleTriggers > 10) {
@@ -158,7 +152,6 @@ ScanResult NSFWDetector::scanLevelString(std::string const& levelString) {
     }
     makeCategory("toggle", "Toggle Reveals", togglePct, toggleReasons);
 
-    // Alpha flashing
     float alphaPct = 0.f;
     std::vector<std::string> alphaReasons;
     if (alphaTriggers > 5) {
@@ -177,6 +170,28 @@ ScanResult NSFWDetector::scanLevelString(std::string const& levelString) {
 }
 
 ScanResult NSFWDetector::scanLevel(GJGameLevel* level) {
-    if (!level) return {};
+    ScanResult empty;
+
+    if (!level) {
+        return empty;
+    }
+
+    log::info("Scanning '{}' | level string size = {}", level->m_levelName, level->m_levelString.size());
+
+    if (level->m_levelString.empty()) {
+        CategoryScore c;
+        c.id = "unloaded";
+        c.name = "Level Data";
+        c.percent = 0.f;
+        c.color = {255, 180, 0};
+        c.reasons.push_back("Level string is empty - level data is not loaded yet");
+
+        empty.categories.push_back(c);
+        empty.totalPercent = 0.f;
+        empty.objectsScanned = 0;
+        empty.scanTimeMs = 0.f;
+        return empty;
+    }
+
     return scanLevelString(level->m_levelString);
 }

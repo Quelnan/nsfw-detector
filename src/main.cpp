@@ -6,6 +6,17 @@
 using namespace geode::prelude;
 
 static std::string buildScanText(ScanResult const& result) {
+    if (result.objectsScanned == 0) {
+        std::string msg = "No level objects were scanned.\n\n";
+        for (auto const& c : result.categories) {
+            for (auto const& reason : c.reasons) {
+                msg += fmt::format("{}\n", reason);
+            }
+        }
+        msg += "\nTry scanning after the level is fully loaded.";
+        return msg;
+    }
+
     std::string text;
 
     for (auto const& c : result.categories) {
