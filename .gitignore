@@ -2,13 +2,11 @@ build/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
-*.dll
-*.dylib
-*.so
 *.geode
+*.dll
+*.so
+*.dylib
 .vs/
 .vscode/
-CMakeSettings.json
 .idea/
 cmake-build-*/
-*.dir/

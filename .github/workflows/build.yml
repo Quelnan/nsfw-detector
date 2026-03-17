@@ -34,11 +34,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Downgrade LLVM (Windows)
+      - name: Install LLVM 19 (Windows)
         if: matrix.config.os == 'windows-latest'
         shell: pwsh
         run: |
-          # Remove Clang 20 which breaks fmt
           choco uninstall llvm -y --no-progress 2>$null
           choco install llvm --version=19.1.7 -y --no-progress
           echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
@@ -67,11 +66,3 @@ jobs:
         with:
           name: nsfw-detector
           path: ${{ steps.build.outputs.build-output }}
-
-      - name: Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v1
-        with:
-          files: ${{ steps.build.outputs.build-output }}/*.geode
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
