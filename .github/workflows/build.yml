@@ -15,14 +15,11 @@ jobs:
         config:
           - name: Windows
             os: windows-latest
-
           - name: macOS
             os: macos-latest
-
           - name: Android32
             os: ubuntu-latest
             target: Android32
-
           - name: Android64
             os: ubuntu-latest
             target: Android64
@@ -31,8 +28,7 @@ jobs:
     runs-on: ${{ matrix.config.os }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Install LLVM 19 (Windows)
         if: matrix.config.os == 'windows-latest'
@@ -42,27 +38,21 @@ jobs:
           choco install llvm --version=19.1.7 -y --no-progress
           echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
-      - name: Build the mod
+      - name: Build
         uses: geode-sdk/build-geode-mod@main
         with:
           combine: true
           target: ${{ matrix.config.target }}
 
   package:
-    name: Package builds
+    name: Package
     runs-on: ubuntu-latest
     needs: build
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Combine builds
-        uses: geode-sdk/build-geode-mod/combine@main
+      - uses: actions/checkout@v4
+      - uses: geode-sdk/build-geode-mod/combine@main
         id: build
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: nsfw-detector
           path: ${{ steps.build.outputs.build-output }}

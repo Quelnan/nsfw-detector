@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.1.0
-- Switched to PlayLayer object scanning
-- Added pending scan flow from LevelInfo button
-- Removed unstable custom popup code
+## v1.2.0
+- Decode level data properly using GD decompression
+- Scan before playing - no need to enter the level
+- Detect off-screen objects, trigger density, etc.

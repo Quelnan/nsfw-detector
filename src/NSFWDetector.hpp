@@ -18,19 +18,22 @@ struct ScanResult {
     float totalPercent = 0.f;
     int objectsScanned = 0;
     float scanTimeMs = 0.f;
+    bool dataAvailable = false;
+    std::string error;
 };
 
 class NSFWDetector {
 public:
     static NSFWDetector* get();
 
-    ScanResult scanPlayLayer(PlayLayer* playLayer);
+    ScanResult scanLevel(GJGameLevel* level);
 
     static cocos2d::ccColor3B colorForPercent(float p);
-    void setSensitivity(int s);
-    int getSensitivity() const;
 
 private:
     int m_sensitivity = 50;
     static NSFWDetector* s_instance;
+
+    std::string getDecodedLevelData(GJGameLevel* level);
+    ScanResult analyzeDecodedData(std::string const& data);
 };

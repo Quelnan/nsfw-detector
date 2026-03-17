@@ -5,12 +5,13 @@
 
 using namespace geode::prelude;
 
-static int g_pendingScanLevelID = 0;
-static bool g_forceScanOnNextPlay = false;
-
 static std::string buildScanText(ScanResult const& result) {
+    if (!result.error.empty()) {
+        return result.error;
+    }
+
     if (result.objectsScanned == 0) {
-        return "No loaded objects were scanned.\n\nTry entering the level first.";
+        return "No objects found in level data.\n\nThe level might not be downloaded yet.\nTry opening it once first.";
     }
 
     std::string text;
@@ -27,19 +28,19 @@ static std::string buildScanText(ScanResult const& result) {
     }
 
     if (maxPct >= 65.f) {
-        text += "\n\n<cr>Likely hidden NSFW content</c>";
+        text += "\n\n<cr>Likely hidden NSFW content!</c>";
     }
     else if (maxPct >= 40.f) {
-        text += "\n\n<cy>Suspicious - check first</c>";
+        text += "\n\n<cy>Suspicious - check before streaming</c>";
     }
     else if (maxPct >= 20.f) {
-        text += "\n\n<cg>Minor flags found</c>";
+        text += "\n\n<cg>Minor flags - probably fine</c>";
     }
     else {
-        text += "\n\n<cg>Looks clean</c>";
+        text += "\n\n<cg>Looks clean!</c>";
     }
 
-    text += fmt::format("\n<cs>{} objects | {:.1f}ms</c>", result.objectsScanned, result.scanTimeMs);
+    text += fmt::format("\n\n<cs>{} objects | {:.1f}ms</c>", result.objectsScanned, result.scanTimeMs);
     return text;
 }
 
@@ -77,12 +78,11 @@ class $modify(NSFWLevelInfoLayer, LevelInfoLayer) {
     void onScan(CCObject*) {
         if (!m_level) return;
 
-        g_pendingScanLevelID = (int)m_level->m_levelID.value();
-        g_forceScanOnNextPlay = true;
+        auto result = NSFWDetector::get()->scanLevel(m_level);
 
         FLAlertLayer::create(
             "NSFW Scanner",
-            "Scan queued.\n\nStart the level and the mod will scan the loaded objects automatically.",
+            buildScanText(result),
             "OK"
         )->show();
     }
@@ -91,31 +91,15 @@ class $modify(NSFWLevelInfoLayer, LevelInfoLayer) {
 class $modify(NSFWPlayLayer, PlayLayer) {
     bool init(GJGameLevel* level, bool useReplay, bool dontCreateObjects) {
         if (!PlayLayer::init(level, useReplay, dontCreateObjects)) return false;
+        if (!Mod::get()->getSettingValue<bool>("auto-scan")) return true;
 
-        bool autoScan = Mod::get()->getSettingValue<bool>("auto-scan");
-        bool pendingMatches = g_forceScanOnNextPlay && level && (int)level->m_levelID.value() == g_pendingScanLevelID;
+        int threshold = Mod::get()->getSettingValue<int64_t>("warn-threshold");
 
-        if (!autoScan && !pendingMatches) return true;
-
-        Loader::get()->queueInMainThread([this, level, pendingMatches]() {
-            auto result = NSFWDetector::get()->scanPlayLayer(this);
-
-            if (pendingMatches) {
-                g_forceScanOnNextPlay = false;
-                g_pendingScanLevelID = 0;
-
-                FLAlertLayer::create(
-                    "NSFW Scan Result",
-                    buildScanText(result),
-                    "OK"
-                )->show();
-                return;
-            }
-
-            int threshold = Mod::get()->getSettingValue<int64_t>("warn-threshold");
+        Loader::get()->queueInMainThread([level, threshold]() {
+            auto result = NSFWDetector::get()->scanLevel(level);
 
             float maxPct = 0.f;
-            std::string maxName = "None";
+            std::string maxName;
             for (auto const& c : result.categories) {
                 if (c.percent > maxPct) {
                     maxPct = c.percent;
@@ -126,10 +110,7 @@ class $modify(NSFWPlayLayer, PlayLayer) {
             if (maxPct >= threshold) {
                 FLAlertLayer::create(
                     "NSFW Warning",
-                    fmt::format(
-                        "<cr>Suspicious level detected</c>\n\nHighest flag: <cy>{}</c> at <cr>{:.0f}%</c>\nTotal: <co>{:.0f}%</c>",
-                        maxName, maxPct, result.totalPercent
-                    ),
+                    buildScanText(result),
                     "OK"
                 )->show();
             }
@@ -140,5 +121,5 @@ class $modify(NSFWPlayLayer, PlayLayer) {
 };
 
 $on_mod(Loaded) {
-    log::info("NSFW Detector loaded");
+    log::info("NSFW Detector v1.2 loaded");
 }
