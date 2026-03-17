@@ -15,14 +15,14 @@ jobs:
         config:
           - name: Windows
             os: windows-latest
-            
+
           - name: macOS
             os: macos-latest
-            
+
           - name: Android32
             os: ubuntu-latest
             target: Android32
-            
+
           - name: Android64
             os: ubuntu-latest
             target: Android64
@@ -33,6 +33,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Downgrade LLVM (Windows)
+        if: matrix.config.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          # Remove Clang 20 which breaks fmt
+          choco uninstall llvm -y --no-progress 2>$null
+          choco install llvm --version=19.1.7 -y --no-progress
+          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Build the mod
         uses: geode-sdk/build-geode-mod@main
