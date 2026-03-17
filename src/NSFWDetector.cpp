@@ -22,100 +22,85 @@ cocos2d::ccColor3B NSFWDetector::colorForPercent(float p) {
     return {255, 60, 60};
 }
 
+// ---- manual base64 decode (no cocos dependency) ----
+static const std::string B64 =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static std::vector<unsigned char> decodeBase64(std::string const& input) {
+    std::vector<unsigned char> out;
+    std::vector<int> T(256, -1);
+    for (int i = 0; i < 64; i++) T[B64[i]] = i;
+
+    int val = 0, bits = -8;
+    for (unsigned char c : input) {
+        if (T[c] == -1) continue;
+        val = (val << 6) + T[c];
+        bits += 6;
+        if (bits >= 0) {
+            out.push_back((val >> bits) & 0xFF);
+            bits -= 8;
+        }
+    }
+    return out;
+}
+
 std::string NSFWDetector::getDecodedLevelData(GJGameLevel* level) {
     if (!level) return "";
 
     std::string raw = level->m_levelString;
-
     if (raw.empty()) {
-        log::warn("Level string is empty for '{}'", level->m_levelName);
+        log::warn("Level string empty for '{}'", level->m_levelName);
         return "";
     }
 
-    log::info("Raw level string size: {}", raw.size());
+    log::info("Raw level string size: {} for '{}'", raw.size(), level->m_levelName);
 
-    // Check if already decompressed (contains commas and semicolons = raw object data)
+    // Already decompressed?
     if (raw.size() > 10 && raw.find(';') != std::string::npos && raw.find(',') < 50) {
-        log::info("Level data appears already decompressed, size: {}", raw.size());
+        log::info("Data already decompressed: {} bytes", raw.size());
         return raw;
     }
 
-    // Try base64 decode + gzip inflate
-    try {
-        // Use cocos2d's ZipUtils which handles the full GD level decompression
-        // GD levels are typically base64 + gzip
-        // ZipUtils::decompressString2 handles this exact case
-
-        bool needsFree = false;
-        unsigned char* decoded = nullptr;
-        int decodedLen = 0;
-
-        // Try the Geode/cocos utility for base64
-        std::string b64 = raw;
-
-        // GD uses URL-safe base64, replace chars
-        for (auto& c : b64) {
-            if (c == '-') c = '+';
-            if (c == '_') c = '/';
-        }
-
-        // Pad if needed
-        while (b64.size() % 4 != 0) b64 += '=';
-
-        // Manual base64 decode using cocos
-        decodedLen = cocos2d::base64Decode(
-            (const unsigned char*)b64.c_str(),
-            (unsigned int)b64.size(),
-            &decoded
-        );
-
-        if (decoded && decodedLen > 0) {
-            // Try gzip decompress
-            unsigned char* inflated = nullptr;
-            auto inflatedLen = ZipUtils::ccInflateMemory(decoded, decodedLen, &inflated);
-
-            free(decoded);
-
-            if (inflated && inflatedLen > 0) {
-                std::string result((char*)inflated, inflatedLen);
-                free(inflated);
-                log::info("Decompressed via base64+gzip: {} bytes", result.size());
-                return result;
-            }
-            if (inflated) free(inflated);
-        }
-        if (decoded) free(decoded);
-    } catch (...) {
-        log::warn("Exception during base64+gzip decompression");
+    // URL-safe base64 fixup
+    std::string b64 = raw;
+    for (char& c : b64) {
+        if (c == '-') c = '+';
+        else if (c == '_') c = '/';
     }
 
-    // Fallback: try ZipUtils directly on the raw data
+    // Decode base64
+    auto decoded = decodeBase64(b64);
+    if (decoded.empty()) {
+        log::warn("Base64 decode produced 0 bytes");
+        return "";
+    }
+    log::info("Base64 decoded: {} bytes", decoded.size());
+
+    // gzip inflate
     try {
         unsigned char* inflated = nullptr;
-        auto inflatedLen = ZipUtils::ccInflateMemory(
-            (unsigned char*)raw.c_str(),
-            (unsigned int)raw.size(),
-            &inflated
+        auto len = ZipUtils::ccInflateMemory(
+            decoded.data(), (unsigned int)decoded.size(), &inflated
         );
-
-        if (inflated && inflatedLen > 0) {
-            std::string result((char*)inflated, inflatedLen);
+        if (inflated && len > 0) {
+            std::string result((char*)inflated, len);
             free(inflated);
-            log::info("Decompressed via raw inflate: {} bytes", result.size());
+            log::info("Inflated: {} bytes", result.size());
             return result;
         }
         if (inflated) free(inflated);
     } catch (...) {
-        log::warn("Raw inflate failed too");
+        log::warn("Inflate failed");
     }
 
-    // Last resort: if it has semicolons, maybe it's usable as-is
-    if (raw.find(';') != std::string::npos) {
-        log::info("Using raw data as-is (has semicolons)");
-        return raw;
+    // Maybe not gzipped
+    std::string asStr(decoded.begin(), decoded.end());
+    if (asStr.find(';') != std::string::npos) {
+        log::info("Decoded has semicolons, using as-is");
+        return asStr;
     }
 
-    log::warn("Could not decode level data at all");
+    log::warn("Could not decode level data");
     return "";
 }
 
@@ -126,7 +111,6 @@ struct ParsedObj {
 
 static std::vector<ParsedObj> parseObjects(std::string const& data) {
     std::vector<ParsedObj> objects;
-
     std::istringstream stream(data);
     std::string objStr;
     bool isHeader = true;
@@ -136,40 +120,30 @@ static std::vector<ParsedObj> parseObjects(std::string const& data) {
         if (objStr.empty()) continue;
 
         ParsedObj obj;
+        std::istringstream os(objStr);
+        std::string tok;
+        std::vector<std::string> toks;
+        while (std::getline(os, tok, ',')) toks.push_back(tok);
 
-        std::istringstream objStream(objStr);
-        std::string token;
-        std::vector<std::string> tokens;
-        while (std::getline(objStream, token, ',')) {
-            tokens.push_back(token);
-        }
-
-        for (size_t i = 0; i + 1 < tokens.size(); i += 2) {
+        for (size_t i = 0; i + 1 < toks.size(); i += 2) {
             int key = 0;
-            try { key = std::stoi(tokens[i]); } catch (...) { continue; }
-            auto const& val = tokens[i + 1];
-
+            try { key = std::stoi(toks[i]); } catch (...) { continue; }
             try {
                 switch (key) {
-                    case 1: obj.id = std::stoi(val); break;
-                    case 2: obj.x = std::stof(val); break;
-                    case 3: obj.y = std::stof(val); break;
+                    case 1: obj.id = std::stoi(toks[i+1]); break;
+                    case 2: obj.x = std::stof(toks[i+1]); break;
+                    case 3: obj.y = std::stof(toks[i+1]); break;
                 }
             } catch (...) {}
         }
-
-        if (obj.id > 0) {
-            objects.push_back(obj);
-        }
+        if (obj.id > 0) objects.push_back(obj);
     }
-
     return objects;
 }
 
 ScanResult NSFWDetector::analyzeDecodedData(std::string const& data) {
-    using namespace std::chrono;
-    auto t0 = high_resolution_clock::now();
-
+    using clk = std::chrono::high_resolution_clock;
+    auto t0 = clk::now();
     ScanResult result;
     result.dataAvailable = true;
 
@@ -178,123 +152,89 @@ ScanResult NSFWDetector::analyzeDecodedData(std::string const& data) {
 
     if (objects.empty()) {
         result.error = "Parsed 0 objects from level data";
-        auto t1 = high_resolution_clock::now();
-        result.scanTimeMs = duration<float, std::milli>(t1 - t0).count();
+        result.scanTimeMs = std::chrono::duration<float, std::milli>(clk::now() - t0).count();
         return result;
     }
 
     float sens = m_sensitivity / 50.f;
+    int colorT=0,pulseT=0,alphaT=0,moveT=0,toggleT=0,spawnT=0,camOff=0,camStat=0,editObj=0;
+    int totalT=0,highObj=0,lowObj=0;
+    std::unordered_map<int,int> bins;
 
-    int colorTriggers = 0, pulseTriggers = 0, alphaTriggers = 0;
-    int moveTriggers = 0, toggleTriggers = 0, spawnTriggers = 0;
-    int cameraOffset = 0, cameraStatic = 0, editObject = 0;
-    int totalTriggers = 0;
-    int highObjects = 0, lowObjects = 0;
-
-    std::unordered_map<int, int> triggerBins;
-
-    for (auto const& obj : objects) {
-        if (obj.y > 1500.f) highObjects++;
-        if (obj.y < -500.f) lowObjects++;
-
-        bool isTrigger = false;
-        switch (obj.id) {
-            case 899: colorTriggers++; isTrigger = true; break;
-            case 901: moveTriggers++; isTrigger = true; break;
-            case 1006: pulseTriggers++; isTrigger = true; break;
-            case 1007: alphaTriggers++; isTrigger = true; break;
-            case 1049: toggleTriggers++; isTrigger = true; break;
-            case 1268: spawnTriggers++; isTrigger = true; break;
-            case 1916: cameraOffset++; isTrigger = true; break;
-            case 2062: cameraStatic++; isTrigger = true; break;
-            case 3600: editObject++; isTrigger = true; break;
-            case 1346: case 1347: case 1520: case 1585:
-            case 1595: case 1611: case 1811: case 1815: case 1817:
-                isTrigger = true; break;
+    for (auto& o : objects) {
+        if (o.y > 1500.f) highObj++;
+        if (o.y < -500.f) lowObj++;
+        bool t = false;
+        switch (o.id) {
+            case 899:colorT++;t=true;break; case 901:moveT++;t=true;break;
+            case 1006:pulseT++;t=true;break; case 1007:alphaT++;t=true;break;
+            case 1049:toggleT++;t=true;break; case 1268:spawnT++;t=true;break;
+            case 1916:camOff++;t=true;break; case 2062:camStat++;t=true;break;
+            case 3600:editObj++;t=true;break;
+            case 1346:case 1347:case 1520:case 1585:case 1595:
+            case 1611:case 1811:case 1815:case 1817:t=true;break;
         }
-        if (isTrigger) {
-            totalTriggers++;
-            triggerBins[(int)(obj.x / 60.f)]++;
-        }
+        if (t) { totalT++; bins[(int)(o.x/60.f)]++; }
     }
 
-    auto makeCategory = [&](std::string id, std::string name, float p, std::vector<std::string> reasons) {
-        CategoryScore c;
-        c.id = id;
-        c.name = name;
-        c.percent = std::clamp(p * sens, 0.f, 100.f);
-        c.color = colorForPercent(c.percent);
-        c.reasons = std::move(reasons);
-        result.totalPercent += c.percent;
-        result.categories.push_back(c);
+    auto mk = [&](std::string id, std::string nm, float p, std::vector<std::string> r) {
+        CategoryScore c; c.id=id; c.name=nm;
+        c.percent=std::clamp(p*sens,0.f,100.f);
+        c.color=colorForPercent(c.percent); c.reasons=std::move(r);
+        result.totalPercent+=c.percent; result.categories.push_back(c);
     };
 
-    float artPct = 0.f;
-    std::vector<std::string> artR;
-    if (result.objectsScanned > 1500) { artPct += 10; artR.push_back("Large object count"); }
-    if (result.objectsScanned > 5000) { artPct += 15; artR.push_back("Very large object count"); }
-    if (highObjects > 20) { artPct += 20; artR.push_back(fmt::format("{} objects very high", highObjects)); }
-    if (lowObjects > 20) { artPct += 20; artR.push_back(fmt::format("{} objects very low", lowObjects)); }
-    if (editObject > 10) { artPct += 10; artR.push_back("Edit object triggers"); }
-    makeCategory("art", "Art Detection", artPct, artR);
+    float a=0; std::vector<std::string> ar;
+    if(result.objectsScanned>1500){a+=10;ar.push_back("Large object count");}
+    if(result.objectsScanned>5000){a+=15;ar.push_back("Very large object count");}
+    if(highObj>20){a+=20;ar.push_back(fmt::format("{} objects very high",highObj));}
+    if(lowObj>20){a+=20;ar.push_back(fmt::format("{} objects very low",lowObj));}
+    if(editObj>10){a+=10;ar.push_back("Edit object triggers");}
+    mk("art","Art Detection",a,ar);
 
-    float lagPct = 0.f;
-    std::vector<std::string> lagR;
-    if (spawnTriggers > 30) { lagPct += 30; lagR.push_back(fmt::format("{} spawn triggers", spawnTriggers)); }
-    if (pulseTriggers > 40) { lagPct += 20; lagR.push_back(fmt::format("{} pulse triggers", pulseTriggers)); }
-    if (totalTriggers > 200) { lagPct += 25; lagR.push_back(fmt::format("{} total triggers", totalTriggers)); }
-    int denseBins = 0;
-    for (auto const& [b, c] : triggerBins) if (c >= 40) denseBins++;
-    if (denseBins > 0) { lagPct += std::min(25.f, denseBins * 8.f); lagR.push_back(fmt::format("{} dense trigger zones", denseBins)); }
-    makeCategory("lag", "Lag Machine", lagPct, lagR);
+    float l=0; std::vector<std::string> lr;
+    if(spawnT>30){l+=30;lr.push_back(fmt::format("{} spawn triggers",spawnT));}
+    if(pulseT>40){l+=20;lr.push_back(fmt::format("{} pulse triggers",pulseT));}
+    if(totalT>200){l+=25;lr.push_back(fmt::format("{} total triggers",totalT));}
+    int db=0; for(auto&[b,c]:bins)if(c>=40)db++;
+    if(db>0){l+=std::min(25.f,db*8.f);lr.push_back(fmt::format("{} dense zones",db));}
+    mk("lag","Lag Machine",l,lr);
 
-    float colPct = 0.f;
-    std::vector<std::string> colR;
-    if (colorTriggers > 20) { colPct += 20; colR.push_back(fmt::format("{} color triggers", colorTriggers)); }
-    if (alphaTriggers > 10) { colPct += 20; colR.push_back(fmt::format("{} alpha triggers", alphaTriggers)); }
-    if (pulseTriggers > 20) { colPct += 10; colR.push_back("Heavy visual triggers"); }
-    makeCategory("color", "Color Tricks", colPct, colR);
+    float co=0; std::vector<std::string> cr;
+    if(colorT>20){co+=20;cr.push_back(fmt::format("{} color triggers",colorT));}
+    if(alphaT>10){co+=20;cr.push_back(fmt::format("{} alpha triggers",alphaT));}
+    if(pulseT>20){co+=10;cr.push_back("Heavy visual triggers");}
+    mk("color","Color Tricks",co,cr);
 
-    float camPct = 0.f;
-    std::vector<std::string> camR;
-    if (cameraOffset > 0) { camPct += std::min(35.f, cameraOffset * 5.f); camR.push_back(fmt::format("{} camera offset", cameraOffset)); }
-    if (cameraStatic > 0) { camPct += std::min(35.f, cameraStatic * 6.f); camR.push_back(fmt::format("{} camera static", cameraStatic)); }
-    if (moveTriggers > 50) { camPct += 10; camR.push_back("Heavy move triggers"); }
-    if (highObjects > 20 || lowObjects > 20) { camPct += 10; camR.push_back("Off-screen objects"); }
-    makeCategory("camera", "Camera Tricks", camPct, camR);
+    float cm=0; std::vector<std::string> cmr;
+    if(camOff>0){cm+=std::min(35.f,camOff*5.f);cmr.push_back(fmt::format("{} cam offset",camOff));}
+    if(camStat>0){cm+=std::min(35.f,camStat*6.f);cmr.push_back(fmt::format("{} cam static",camStat));}
+    if(moveT>50){cm+=10;cmr.push_back("Heavy move triggers");}
+    if(highObj>20||lowObj>20){cm+=10;cmr.push_back("Off-screen objects");}
+    mk("camera","Camera Tricks",cm,cmr);
 
-    float togPct = 0.f;
-    std::vector<std::string> togR;
-    if (toggleTriggers > 10) { togPct += 20; togR.push_back(fmt::format("{} toggle triggers", toggleTriggers)); }
-    if (toggleTriggers > 40) { togPct += 20; togR.push_back("Heavy group visibility"); }
-    makeCategory("toggle", "Toggle Reveals", togPct, togR);
+    float tg=0; std::vector<std::string> tgr;
+    if(toggleT>10){tg+=20;tgr.push_back(fmt::format("{} toggle triggers",toggleT));}
+    if(toggleT>40){tg+=20;tgr.push_back("Heavy group visibility");}
+    mk("toggle","Toggle Reveals",tg,tgr);
 
-    float alpPct = 0.f;
-    std::vector<std::string> alpR;
-    if (alphaTriggers > 5) { alpPct += 20; alpR.push_back(fmt::format("{} alpha triggers", alphaTriggers)); }
-    if (alphaTriggers > 20) { alpPct += 20; alpR.push_back("Possible hidden flashing"); }
-    makeCategory("alpha", "Alpha Flashing", alpPct, alpR);
+    float al=0; std::vector<std::string> alr;
+    if(alphaT>5){al+=20;alr.push_back(fmt::format("{} alpha triggers",alphaT));}
+    if(alphaT>20){al+=20;alr.push_back("Possible hidden flashing");}
+    mk("alpha","Alpha Flashing",al,alr);
 
-    auto t1 = high_resolution_clock::now();
-    result.scanTimeMs = duration<float, std::milli>(t1 - t0).count();
+    result.scanTimeMs = std::chrono::duration<float,std::milli>(clk::now()-t0).count();
     return result;
 }
 
 ScanResult NSFWDetector::scanLevel(GJGameLevel* level) {
     ScanResult fail;
-    if (!level) {
-        fail.error = "No level provided";
-        return fail;
-    }
-
-    log::info("Scanning level '{}' (ID: {})", level->m_levelName, level->m_levelID.value());
-
-    std::string decoded = getDecodedLevelData(level);
-
+    if (!level) { fail.error="No level"; return fail; }
+    log::info("Scanning '{}' (ID:{})", level->m_levelName, level->m_levelID.value());
+    auto decoded = getDecodedLevelData(level);
     if (decoded.empty()) {
-        fail.error = "Could not load level data.\n\nMake sure the level is downloaded.\nTry opening the level once, then go back and scan again.";
+        fail.error="Could not load level data.\n\nMake sure the level is downloaded.";
         return fail;
     }
-
     return analyzeDecodedData(decoded);
 }
