@@ -7,12 +7,10 @@ project(NSFWDetector VERSION 1.0.0)
 add_library(${PROJECT_NAME} SHARED
     src/main.cpp
     src/NSFWDetector.cpp
-    src/ui/ScanPopup.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     src
-    src/ui
 )
 
 if (NOT DEFINED ENV{GEODE_SDK})

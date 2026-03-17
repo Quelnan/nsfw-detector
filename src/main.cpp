@@ -2,9 +2,39 @@
 #include <Geode/modify/LevelInfoLayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include "NSFWDetector.hpp"
-#include "ui/ScanPopup.hpp"
 
 using namespace geode::prelude;
+
+static std::string buildScanText(ScanResult const& result) {
+    std::string text;
+
+    for (auto const& c : result.categories) {
+        text += fmt::format("{}: <cy>{:.0f}%</c>\n", c.name, c.percent);
+    }
+
+    text += fmt::format("\nTotal: <co>{:.0f}%</c>", result.totalPercent);
+
+    float maxPct = 0.f;
+    for (auto const& c : result.categories) {
+        maxPct = std::max(maxPct, c.percent);
+    }
+
+    if (maxPct >= 65.f) {
+        text += "\n\n<cr>Likely hidden NSFW content</c>";
+    }
+    else if (maxPct >= 40.f) {
+        text += "\n\n<cy>Suspicious - check first</c>";
+    }
+    else if (maxPct >= 20.f) {
+        text += "\n\n<cg>Minor flags found</c>";
+    }
+    else {
+        text += "\n\n<cg>Looks clean</c>";
+    }
+
+    text += fmt::format("\n<cs>{} objects | {:.1f}ms</c>", result.objectsScanned, result.scanTimeMs);
+    return text;
+}
 
 class $modify(NSFWLevelInfoLayer, LevelInfoLayer) {
     bool init(GJGameLevel* level, bool challenge) {
@@ -39,9 +69,14 @@ class $modify(NSFWLevelInfoLayer, LevelInfoLayer) {
 
     void onScan(CCObject*) {
         if (!m_level) return;
-        if (auto popup = ScanPopup::create(m_level)) {
-            popup->show();
-        }
+
+        auto result = NSFWDetector::get()->scanLevel(m_level);
+
+        FLAlertLayer::create(
+            "NSFW Scanner",
+            buildScanText(result),
+            "OK"
+        )->show();
     }
 };
 
