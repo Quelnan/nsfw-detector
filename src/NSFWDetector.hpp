@@ -32,6 +32,7 @@ struct LevelObject {
     int zLayer = 0, zOrder = 0;
     float moveX = 0, moveY = 0;
     float opacity = 1.f, duration = 0.f;
+    int trigR = 255, trigG = 255, trigB = 255;
     std::vector<int> groups;
 };
 
@@ -45,5 +46,6 @@ private:
     static NSFWDetector* s_inst;
     std::string decodeLevelData(GJGameLevel* level);
     std::vector<LevelObject> parseObjects(std::string const& data);
-    ScanResult analyze(std::vector<LevelObject> const& objects);
+    std::unordered_map<int, std::tuple<int,int,int>> parseHeaderColors(std::string const& data);
+    ScanResult analyze(std::vector<LevelObject> const& objects, std::string const& levelData);
 };
