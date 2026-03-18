@@ -25,8 +25,11 @@ struct ScanResult {
 struct LevelObject {
     int id = 0;
     float x = 0, y = 0;
+    float scale = 1.f;
     int mainColor = 0, detailColor = 0;
     int targetColor = 0, targetGroup = 0;
+    int staticGroup = 0;
+    int zLayer = 0, zOrder = 0;
     float moveX = 0, moveY = 0;
     float opacity = 1.f, duration = 0.f;
     std::vector<int> groups;
