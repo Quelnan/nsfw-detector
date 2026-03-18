@@ -2,6 +2,7 @@
 #include <chrono>
 #include <algorithm>
 #include <sstream>
+#include <fstream>
 #include <cmath>
 #include <set>
 
@@ -429,5 +430,16 @@ ScanResult NSFWDetector::scanLevel(GJGameLevel* level) {
     auto objs = parseObjects(data);
     if (objs.empty()) { fail.error = "Parsed 0 objects."; return fail; }
     log::info("Parsed {} objects", objs.size());
+
+    // Save decoded level data for Python analysis
+    try {
+        auto path = Mod::get()->getSaveDir() / fmt::format("level_{}.txt", level->m_levelID.value());
+        std::ofstream file(path.string());
+        if (file.is_open()) {
+            file << data;
+            file.close();
+            log::info("Saved level data to: {}", path.string());
+        }
+    } catch (...) {}
     return analyze(objs);
 }

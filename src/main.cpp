@@ -11,35 +11,32 @@ static std::string buildText(ScanResult const& r) {
 
     std::string t;
     for (auto& c : r.categories) {
+        if (c.percent < 1.f) continue; // skip 0% categories to save space
         t += fmt::format("{}: <cy>{:.0f}%</c>", c.name, c.percent);
-        if (!c.reasons.empty()) {
-            for (size_t i = 0; i < c.reasons.size(); i++)
-                t += fmt::format("\n  - {}", c.reasons[i]);
-        }
+        // only show first reason to save space
+        if (!c.reasons.empty())
+            t += fmt::format(" - {}", c.reasons[0]);
         t += "\n";
     }
 
     float mx = 0;
     for (auto& c : r.categories) mx = std::max(mx, c.percent);
 
-    t += fmt::format("\nHighest flag: <co>{:.0f}%</c>", mx);
+    // If nothing flagged, just say clean
+    if (mx < 1.f) {
+        t = "<cg>No suspicious patterns found!</c>\n";
+    }
 
     if (mx >= 50.f)
-        t += "\n\n<cr>Likely NSFW - check the level before streaming!</c>";
+        t += "\n<cr>Likely NSFW - check before streaming!</c>";
     else if (mx >= 30.f)
-        t += "\n\n<cy>Possibly suspicious - worth checking before streaming</c>";
+        t += "\n<cy>Possibly suspicious - worth checking</c>";
     else if (mx >= 15.f)
-        t += "\n\n<cg>Minor flags - likely safe, but a quick check doesn't hurt</c>";
+        t += "\n<cg>Minor flags - likely safe</c>";
     else
-        t += "\n\n<cg>No suspicious patterns found - looks safe!</c>";
+        t += "\n<cg>Looks safe!</c>";
 
-    t += fmt::format("\n\n<cs>{} objects | {:.1f}ms</c>", r.objectsScanned, r.scanTimeMs);
-
-    t += "\n\n<co>This mod is still in beta.</c>\n"
-         "<cs>Do not rely on it fully.</c>\n"
-         "<cs>Always check the level yourself before</c>\n"
-         "<cs>banning a user or going live.</cs>\n"
-         "<cs>False positives and negatives can occur.</c>";
+    t += fmt::format("\n<cs>({} objs, {:.0f}ms) Beta - always check yourself</c>", r.objectsScanned, r.scanTimeMs);
 
     return t;
 }
