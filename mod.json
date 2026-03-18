@@ -3,7 +3,7 @@
     "gd": { "win": "2.2081", "android": "2.2081" },
     "id": "quelnan.nsfw-detector",
     "name": "NSFW Level Detector",
-    "version": "v1.4.0",
+    "version": "v0.2.2beta",
     "developer": "Quelnan",
     "description": "Detect hidden NSFW tricks in GD levels using pattern analysis.",
     "tags": ["utility", "interface"],
