@@ -307,8 +307,8 @@ ScanResult NSFWDetector::analyze(std::vector<LevelObject> const& objects, std::s
         for (auto* t:triggers) {
             if ((t->id==1916||t->id==2062) && std::abs(t->moveY)>500.f) {
                 float dy=(t->id==1916)?t->moveY:t->y+t->moveY;
-                int near=0; for(auto*o:offscreenAll) if(std::abs(o->y-dy)<1000.f) near++;
-                if (near>15) { pct+=30; reasons.push_back(fmt::format("Camera to Y={:.0f}, {} objects there",dy,near)); break; }
+                int nearby=0; for(auto*o:offscreenAll) if(std::abs(o->y-dy)<1000.f) nearby++;
+                if (nearby>15) { pct+=30; reasons.push_back(fmt::format("Camera to Y={:.0f}, {} objects there",dy,nearby)); break; }
                 else if (std::abs(t->moveY)>1200.f) { pct+=15; reasons.push_back(fmt::format("Extreme camera Y={:.0f}",t->moveY)); }
             }
         }
